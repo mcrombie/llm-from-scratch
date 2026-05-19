@@ -129,7 +129,7 @@ class MultiHeadAttention(nn.Module):
 
 GPT_CONFIG_124M = {
     "vocab_size": 50257, # Vocabulary size     
-    "context_length": 1024, # Context length     
+    "context_length": 256, # Context length     
     "emb_dim": 768, # Embedding dimension     
     "n_heads": 12, # Number of attention heads     
     "n_layers": 12, # Number of layers     
@@ -303,6 +303,16 @@ def generate_text_simple(model, idx,
         idx_next = torch.argmax(probas, dim=-1, keepdim=True)
         idx = torch.cat((idx, idx_next), dim=1)
     return idx
+
+
+def text_to_token_ids(text, tokenizer): 
+    encoded = tokenizer.encode(text, allowed_special={'<|endoftext|>'})
+    encoded_tensor = torch.tensor(encoded).unsqueeze(0)
+    return encoded_tensor
+
+def token_ids_to_text(token_ids, tokenizer):
+    flat = token_ids.squeeze(0)
+    return tokenizer.decode(flat.tolist())
 
 def main():
     with open(FILE_PATH, "r", encoding="utf-8") as f:
@@ -676,7 +686,7 @@ def main():
     total_size_mb = total_size_bytes / (1024 * 1024)
     print(f"Total size of the model: {total_size_mb:.2f} MB")
 
-    start_context = "Hello, I am" 
+    start_context = "Hello, I am sometimes" 
     encoded = tokenizer.encode(start_context) 
     print("encoded:", encoded) 
     encoded_tensor = torch.tensor(encoded).unsqueeze(0)
@@ -694,5 +704,15 @@ def main():
     decoded_text = tokenizer.decode(out.squeeze(0).tolist()) 
     print(decoded_text)
 
+
+    torch.manual_seed(123) 
+    model = GPTModel(GPT_CONFIG_124M) 
+    model.eval()
+
+    start_context = "Every effort moves you" 
+    tokenizer = tiktoken.get_encoding("gpt2") 
+    token_ids = generate_text_simple(model=model, idx=text_to_token_ids(start_context, tokenizer), max_new_tokens=10, context_size=GPT_CONFIG_124M["context_length"] ) 
+    print("Output text:\n", token_ids_to_text(token_ids, tokenizer))
+    
 if __name__ == "__main__":
     main()
