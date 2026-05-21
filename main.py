@@ -314,6 +314,31 @@ def token_ids_to_text(token_ids, tokenizer):
     flat = token_ids.squeeze(0)
     return tokenizer.decode(flat.tolist())
 
+def calc_loss_batch(input_batch, target_batch, model, device): 
+    input_batch = input_batch.to(device)
+    target_batch = target_batch.to(device)
+    logits = model(input_batch) 
+    loss = torch.nn.functional.cross_entropy(
+        logits.flatten(0, 1), target_batch.flatten()
+        )
+    return loss
+
+def calc_loss_loader(data_loader, model, device, num_batches=None): 
+    total_loss = 0. 
+    if len(data_loader) == 0:
+        return float("nan") 
+    elif num_batches is None: 
+        num_batches = len(data_loader)
+    else: 
+        num_batches = min(num_batches, len(data_loader))
+    for i, (input_batch, target_batch) in enumerate(data_loader): 
+        if i < num_batches: 
+            loss = calc_loss_batch(input_batch, target_batch, model, device)
+            total_loss += loss.item()
+        else: 
+            break 
+    return total_loss / num_batches
+
 def main():
     with open(FILE_PATH, "r", encoding="utf-8") as f:
         raw_text = f.read()
@@ -759,6 +784,55 @@ def main():
 
     loss = torch.nn.functional.cross_entropy(logits_flat, targets_flat) 
     print(loss)
+
+    file_path = "the-verdict.txt" 
+    with open(file_path, "r", encoding="utf-8") as file:
+        text_data = file.read()
+
+    total_characters = len(text_data) 
+    total_tokens = len(tokenizer.encode(text_data)) 
+    print("Characters:", total_characters) 
+    print("Tokens:", total_tokens) 
+
+    train_ratio = 0.90 
+    split_idx = int(train_ratio * len(text_data)) 
+    train_data = text_data[:split_idx] 
+    val_data = text_data[split_idx:]
+
+    train_loader = create_dataloader_v1(
+        train_data, 
+        batch_size=2, 
+        max_length=GPT_CONFIG_124M["context_length"], 
+        stride=GPT_CONFIG_124M["context_length"], 
+        drop_last=True, 
+        shuffle=True, 
+        num_workers=0 
+    ) 
+    val_loader = create_dataloader_v1( 
+        val_data, 
+        batch_size=2, 
+        max_length=GPT_CONFIG_124M["context_length"], 
+        stride=GPT_CONFIG_124M["context_length"], 
+        drop_last=False, 
+        shuffle=False, 
+        num_workers=0 
+    )
+
+    print("Train loader:") 
+    for x, y in train_loader: 
+        print(x.shape, y.shape) 
+        
+    print("\nValidation loader:") 
+    for x, y in val_loader: 
+        print(x.shape, y.shape)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
+    model.to(device)
+    with torch.no_grad():
+        train_loss = calc_loss_loader(train_loader, model, device)
+        val_loss = calc_loss_loader(val_loader, model, device) 
+    print("Training loss:", train_loss) 
+    print("Validation loss:", val_loss)
     
 if __name__ == "__main__":
     main()
