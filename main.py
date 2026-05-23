@@ -906,6 +906,8 @@ def main():
     print("Training loss:", train_loss) 
     print("Validation loss:", val_loss)
 
+
+    # TRAINING THE MODEL
     torch.manual_seed(123) 
     model = GPTModel(GPT_CONFIG_124M) 
     model.to(device) 
@@ -925,6 +927,15 @@ def main():
 
     epochs_tensor = torch.linspace(0, num_epochs, len(train_losses)) 
     plot_losses(epochs_tensor, tokens_seen, train_losses, val_losses)
+
+
+    # transferring the model back from the GPU to the CPU since inference with a relatively small model does not require a GPU.
+    model.to("cpu") 
+    model.eval()
+
+    tokenizer = tiktoken.get_encoding("gpt2") 
+    token_ids = generate_text_simple( model=model, idx=text_to_token_ids("Every effort moves you", tokenizer), max_new_tokens=25, context_size=GPT_CONFIG_124M["context_length"] ) 
+    print("Output text:\n", token_ids_to_text(token_ids, tokenizer))
 
     
 if __name__ == "__main__":
