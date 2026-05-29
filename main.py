@@ -1005,6 +1005,26 @@ def main():
     token_ids = generate(model=model, idx=text_to_token_ids("Every effort moves you", tokenizer), max_new_tokens=15, context_size=GPT_CONFIG_124M["context_length"], top_k=25, temperature=1.4 ) 
     print("Output text:\n", token_ids_to_text(token_ids, tokenizer))
 
+    torch.save(model.state_dict(), "model.pth")
+
+    model = GPTModel(GPT_CONFIG_124M)
+    model.load_state_dict(torch.load("model.pth", map_location=device))
+    model.eval()
+
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),    
+    },
+    "model_and_optimizer.pth"
+    )
+
+    checkpoint = torch.load("model_and_optimizer.pth", map_location=device) 
+    model = GPTModel(GPT_CONFIG_124M) 
+    model.load_state_dict(checkpoint["model_state_dict"]) 
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.1) 
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"]) 
+    model.train();
+
 
 if __name__ == "__main__":
     main()
