@@ -8,6 +8,9 @@ wheels/
 
 
 *.pth
+gpt2/
+gpt_download.py
 
 # Virtual environments
 .venv
+.venv-tf/

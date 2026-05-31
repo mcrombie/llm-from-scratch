@@ -1,12 +1,17 @@
 import os
 import re
-import urllib.request
+import urllib.request 
 
 import tiktoken
 import torch
 
 from tokenizers import SimpleTokenizerV2
 from dataset import create_dataloader_v1
+
+import urllib.request 
+
+import numpy as np 
+
 
 
 URL = (
@@ -97,7 +102,7 @@ class MultiHeadAttention(nn.Module):
         self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
         self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.out_proj = nn.Linear(d_out, d_out) #2         
+        self.out_proj = nn.Linear(d_out, d_out) #2         
         self.dropout = nn.Dropout(dropout)
         self.register_buffer("mask", torch.triu(torch.ones(context_length, context_length), diagonal=1))
 
@@ -129,12 +134,12 @@ class MultiHeadAttention(nn.Module):
 
 
 GPT_CONFIG_124M = {
-    "vocab_size": 50257, # Vocabulary size     
-    "context_length": 256, # Context length     
-    "emb_dim": 768, # Embedding dimension     
-    "n_heads": 12, # Number of attention heads     
-    "n_layers": 12, # Number of layers     
-    "drop_rate": 0.1, # Dropout rate     
+    "vocab_size": 50257, # Vocabulary size     
+    "context_length": 256, # Context length     
+    "emb_dim": 768, # Embedding dimension     
+    "n_heads": 12, # Number of attention heads     
+    "n_layers": 12, # Number of layers     
+    "drop_rate": 0.1, # Dropout rate     
     "qkv_bias": False # Query-Key-Value bias 
     }
 
@@ -812,10 +817,10 @@ def main():
     print("Output text:\n", token_ids_to_text(token_ids, tokenizer))
 
     inputs = torch.tensor([[16833, 3626, 6100],# ["every effort moves",
-                           [40, 1107, 588]]) #  "I really like"]
+                           [40, 1107, 588]]) #  "I really like"]
     
     targets = torch.tensor([[3626, 6100, 345 ], # [" effort moves you",
-                            [1107, 588, 11311]]) #  " really like chocolate"]
+                            [1107, 588, 11311]]) #  " really like chocolate"]
     
     with torch.no_grad():
         logits = model(inputs) 
@@ -908,25 +913,25 @@ def main():
 
 
     # TRAINING THE MODEL
-    torch.manual_seed(123) 
-    model = GPTModel(GPT_CONFIG_124M) 
-    model.to(device) 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0004, weight_decay=0.1 ) 
-    num_epochs = 10 
-    train_losses, val_losses, tokens_seen = train_model_simple(model, 
-                                                               train_loader, 
-                                                               val_loader, 
-                                                               optimizer, 
-                                                               device, 
-                                                               num_epochs=num_epochs, 
-                                                               eval_freq=5, 
-                                                               eval_iter=5, 
-                                                               start_context="Every effort moves you", 
-                                                               tokenizer=tokenizer)
+    # torch.manual_seed(123) 
+    # model = GPTModel(GPT_CONFIG_124M) 
+    # model.to(device) 
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=0.0004, weight_decay=0.1 ) 
+    # num_epochs = 10 
+    # train_losses, val_losses, tokens_seen = train_model_simple(model, 
+    #                                                            train_loader, 
+    #                                                            val_loader, 
+    #                                                            optimizer, 
+    #                                                            device, 
+    #                                                            num_epochs=num_epochs, 
+    #                                                            eval_freq=5, 
+    #                                                            eval_iter=5, 
+    #                                                            start_context="Every effort moves you", 
+    #                                                            tokenizer=tokenizer)
     
 
-    epochs_tensor = torch.linspace(0, num_epochs, len(train_losses)) 
-    plot_losses(epochs_tensor, tokens_seen, train_losses, val_losses)
+    # epochs_tensor = torch.linspace(0, num_epochs, len(train_losses)) 
+    # plot_losses(epochs_tensor, tokens_seen, train_losses, val_losses)
 
 
     # transferring the model back from the GPU to the CPU since inference with a relatively small model does not require a GPU.
@@ -1024,6 +1029,71 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.1) 
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"]) 
     model.train();
+
+    url = (
+        "https://raw.githubusercontent.com/rasbt/" 
+        "LLMs-from-scratch/main/ch05/" 
+        "01_main-chapter-code/gpt_download.py" 
+        ) 
+    filename = url.split('/')[-1] 
+    urllib.request.urlretrieve(url, filename)
+    from gpt_download import download_and_load_gpt2
+
+    settings, params = download_and_load_gpt2(
+        model_size = "124M", models_dir = "gpt2"
+    )
+
+    print('Settings:', settings)
+    print('Parameter dictionary keys:', params.keys())
+
+    print(params['wte'])
+    print('Token embedding weight tensor dimensions:', params['wte'].shape)
+
+    model_configs = {
+        "gpt2-small (124M)": {"emb_dim": 768, "n_layers": 12, "n_heads": 12}, 
+        "gpt2-medium (355M)": {"emb_dim": 1024, "n_layers": 24, "n_heads": 16}, 
+        "gpt2-large (774M)": {"emb_dim": 1280, "n_layers": 36, "n_heads": 20}, 
+        "gpt2-xl (1558M)": {"emb_dim": 1600, "n_layers": 48, "n_heads": 25}, 
+        }
+    model_name = "gpt2-small (124M)" 
+    NEW_CONFIG = GPT_CONFIG_124M.copy() 
+    NEW_CONFIG.update(model_configs[model_name])
+
+    NEW_CONFIG.update({"context_length": 1024}) 
+
+    NEW_CONFIG.update({"qkv_bias": True}) 
+
+    gpt = GPTModel(NEW_CONFIG)
+    gpt.eval()
+
+    def assign(left, right):
+        if left.shape != right.shape: 
+            raise ValueError(f"Shape mismatch. Left: {left.shape}, "
+                             "Right: {right.shape}") 
+        return torch.nn.Parameter(torch.tensor(right))
+    
+    def load_weights_into_gpt(gpt, params): 
+        gpt.pos_emb.weight = assign(gpt.pos_emb.weight, params['wpe']) 
+        gpt.tok_emb.weight = assign(gpt.tok_emb.weight, params['wte']) 
+        
+        for b in range(len(params["blocks"])):
+            q_w, k_w, v_w = np.split(
+                (params["blocks"][b]["attn"]["c_attn"])["w"], 3, axis=-1)
+            gpt.trf_blocks[b].att.W_query.weight = assign(gpt.trf_blocks[b].att.W_query.weight, q_w.T) 
+            gpt.trf_blocks[b].att.W_key.weight = assign(gpt.trf_blocks[b].att.W_key.weight, k_w.T)
+            gpt.trf_blocks[b].att.W_value.weight = assign( gpt.trf_blocks[b].att.W_value.weight, v_w.T) 
+            
+            q_b, k_b, v_b = np.split((params["blocks"][b]["attn"]["c_attn"])["b"], 3, axis=-1)
+            gpt.trf_blocks[b].att.W_query.bias = assign(gpt.trf_blocks[b].att.W_query.bias, q_b)
+            gpt.trf_blocks[b].att.W_key.bias = assign(gpt.trf_blocks[b].att.W_key.bias, k_b)
+            gpt.trf_blocks[b].att.W_value.bias = assign(gpt.trf_blocks[b].att.W_value.bias, v_b)
+            
+            gpt.trf_blocks[b].att.out_proj.weight = assign(gpt.trf_blocks[b].att.out_proj.weight, params["blocks"][b]["attn"]["c_proj"]["w"].T)
+            gpt.trf_blocks[b].att.out_proj.bias = assign(gpt.trf_blocks[b].att.out_proj.bias, params["blocks"][b]["attn"]["c_proj"]["b"]) 
+            
+            gpt.trf_blocks[b].ff.layers[0].weight = assign(gpt.trf_blocks[b].ff.layers[0].weight, params["blocks"][b]["mlp"]["c_fc"]["w"].T)
+            gpt.trf_blocks[b].ff.layers[0].bias = assign(gpt.trf_blocks[b].ff.layers[0].bias, params["blocks"][b]["mlp"]["c_fc"]["b"])
+            
 
 
 if __name__ == "__main__":

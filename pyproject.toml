@@ -5,6 +5,10 @@ description = "Working through 'Build an LLM from Scratch'"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "matplotlib",
+    "numpy",
+    "tensorflow",
     "torch",
     "tiktoken",
+    "tqdm",
 ]
