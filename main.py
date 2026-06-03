@@ -1,6 +1,10 @@
 import os
 import re
+import sys
 import urllib.request 
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import tiktoken
 import torch
@@ -28,6 +32,17 @@ import torch.nn as nn
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+
+import zipfile
+import os
+from pathlib import Path
+
+import pandas as pd
+
+SPAM_DATA_URL = "https://archive.ics.uci.edu/static/public/228/sms+spam+collection.zip"
+zip_path = "sms_spam_collection.zip"
+extracted_path = "sms_spam_collection"
+data_file_path = Path(extracted_path) / "SMSSpamCollection.tsv"
 
 class SelfAttention_v1(nn.Module):
     def __init__(self, d_in, d_out):
@@ -1016,6 +1031,7 @@ def main():
     model.load_state_dict(torch.load("model.pth", map_location=device))
     model.eval()
 
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.1)
     torch.save({
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),    
@@ -1030,13 +1046,14 @@ def main():
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"]) 
     model.train();
 
-    url = (
+    gpt_download_url = (
         "https://raw.githubusercontent.com/rasbt/" 
         "LLMs-from-scratch/main/ch05/" 
         "01_main-chapter-code/gpt_download.py" 
         ) 
-    filename = url.split('/')[-1] 
-    urllib.request.urlretrieve(url, filename)
+    filename = gpt_download_url.split('/')[-1] 
+    if not os.path.exists(filename):
+        urllib.request.urlretrieve(gpt_download_url, filename)
     from gpt_download import download_and_load_gpt2
 
     settings, params = download_and_load_gpt2(
@@ -1077,14 +1094,14 @@ def main():
         gpt.tok_emb.weight = assign(gpt.tok_emb.weight, params["wte"])
 
         for b in range(len(params["blocks"])):
-            # block = params["blocks"][b]
+            block = params["blocks"][b]
             q_w, k_w, v_w = np.split(block["attn"]["c_attn"]["w"], 3, axis=-1)
             gpt.trf_blocks[b].att.W_query.weight = assign(gpt.trf_blocks[b].att.W_query.weight, q_w.T)
             gpt.trf_blocks[b].att.W_key.weight = assign(gpt.trf_blocks[b].att.W_key.weight, k_w.T)
             gpt.trf_blocks[b].att.W_value.weight = assign(gpt.trf_blocks[b].att.W_value.weight, v_w.T)
 
             q_b, k_b, v_b = np.split(
-                (params["blocks"][b]["attn"]["c_attn"])["b"], 3, axis=-1) 
+                block["attn"]["c_attn"]["b"], 3, axis=-1) 
             gpt.trf_blocks[b].att.W_query.bias = assign( 
                 gpt.trf_blocks[b].att.W_query.bias, q_b) 
             gpt.trf_blocks[b].att.W_key.bias = assign(
@@ -1094,24 +1111,24 @@ def main():
 
             gpt.trf_blocks[b].att.out_proj.weight = assign(
                 gpt.trf_blocks[b].att.out_proj.weight, 
-                params["blocks"][b]["attn"]["c_proj"]["w"].T)
+                block["attn"]["c_proj"]["w"].T)
             gpt.trf_blocks[b].att.out_proj.bias = assign(
                 gpt.trf_blocks[b].att.out_proj.bias, 
-                params["blocks"][b]["attn"]["c_proj"]["b"])
+                block["attn"]["c_proj"]["b"])
 
             gpt.trf_blocks[b].ff.layers[0].weight = assign(
-                gpt.trf_blocks[b].ff.layers[0].weight, params["blocks"][b]["mlp"]["c_fc"]["w"].T)
+                gpt.trf_blocks[b].ff.layers[0].weight, block["mlp"]["c_fc"]["w"].T)
             gpt.trf_blocks[b].ff.layers[0].bias = assign(
-                gpt.trf_blocks[b].ff.layers[0].bias, params["blocks"][b]["mlp"]["c_fc"]["b"])
+                gpt.trf_blocks[b].ff.layers[0].bias, block["mlp"]["c_fc"]["b"])
             gpt.trf_blocks[b].ff.layers[2].weight = assign(
-                gpt.trf_blocks[b].ff.layers[2].weight, params["blocks"][b]["mlp"]["c_proj"]["w"].T)
+                gpt.trf_blocks[b].ff.layers[2].weight, block["mlp"]["c_proj"]["w"].T)
             gpt.trf_blocks[b].ff.layers[2].bias = assign(
-                gpt.trf_blocks[b].ff.layers[2].bias, params["blocks"][b]["mlp"]["c_proj"]["b"])
+                gpt.trf_blocks[b].ff.layers[2].bias, block["mlp"]["c_proj"]["b"])
 
-            gpt.trf_blocks[b].norm1.scale = assign(gpt.trf_blocks[b].norm1.scale, params["blocks"][b]["ln_1"]["g"])
-            gpt.trf_blocks[b].norm1.shift = assign(gpt.trf_blocks[b].norm1.shift, params["blocks"][b]["ln_1"]["b"])
-            gpt.trf_blocks[b].norm2.scale = assign(gpt.trf_blocks[b].norm2.scale, params["blocks"][b]["ln_2"]["g"])
-            gpt.trf_blocks[b].norm2.shift = assign(gpt.trf_blocks[b].norm2.shift, params["blocks"][b]["ln_2"]["b"])
+            gpt.trf_blocks[b].norm1.scale = assign(gpt.trf_blocks[b].norm1.scale, block["ln_1"]["g"])
+            gpt.trf_blocks[b].norm1.shift = assign(gpt.trf_blocks[b].norm1.shift, block["ln_1"]["b"])
+            gpt.trf_blocks[b].norm2.scale = assign(gpt.trf_blocks[b].norm2.scale, block["ln_2"]["g"])
+            gpt.trf_blocks[b].norm2.shift = assign(gpt.trf_blocks[b].norm2.shift, block["ln_2"]["b"])
 
         gpt.final_norm.scale = assign(gpt.final_norm.scale, params["g"])
         gpt.final_norm.shift = assign(gpt.final_norm.shift, params["b"])
@@ -1124,10 +1141,60 @@ def main():
     token_ids = generate(
         model=gpt, 
         idx=text_to_token_ids("Every effort moves you", tokenizer), 
-        ax_new_tokens=25, context_size=NEW_CONFIG["context_length"], 
+        max_new_tokens=25, context_size=NEW_CONFIG["context_length"], 
         top_k=50, temperature=1.5 
     )
     print("Output text:\n", token_ids_to_text(token_ids, tokenizer))
+
+    def download_and_unzip_spam_data(
+            url, zip_path, extracted_path, data_file_path):
+        if data_file_path.exists():
+            print(f"Data file already exists at {data_file_path}. Skipping download and extraction.")
+            return
+        with urllib.request.urlopen(url) as response:
+            with open(zip_path, 'wb') as out_file:
+                out_file.write(response.read())
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extracted_path)
+
+        original_file_path = Path(extracted_path) / "SMSSpamCollection"
+        os.rename(original_file_path, data_file_path)
+        print(f"File downloaded and saved as {data_file_path}")
+    
+    download_and_unzip_spam_data(SPAM_DATA_URL, zip_path, extracted_path, data_file_path)
+
+    df = pd.read_csv(data_file_path, sep='\t', header=None, names=['Label', 'Text'])
+    df
+
+    print(df["Label"].value_counts())
+
+    def create_balanced_dataset(df):
+        num_spam = df[df["Label"] == "spam"].shape[0]
+        ham_subset = df[df["Label"] == "ham"].sample(num_spam, random_state=123)
+        balanced_df = pd.concat([ham_subset, df[df["Label"] == "spam"]])
+        return balanced_df
+    
+    balanced_df = create_balanced_dataset(df)
+    print(balanced_df["Label"].value_counts())
+
+    balanced_df["Label"] = balanced_df["Label"].map({"ham": 0, "spam": 1})
+
+    def random_split(df, train_frac, validation_frac):
+        df = df.sample(frac=1, random_state=123).reset_index(drop=True)
+        train_end = int(len(df) * train_frac)
+        validation_end = train_end + int(len(df) * validation_frac)
+
+        train_df = df[:train_end]
+        validation_df = df[train_end:validation_end]
+        test_df = df[validation_end:]
+
+        return train_df, validation_df, test_df
+    
+    train_df, validation_df, test_df = random_split(balanced_df, 0.7, 0.1)
+
+    train_df.to_csv("train.csv", index=None)
+    validation_df.to_csv("validation.csv", index=None)
+    test_df.to_csv("test.csv", index=None)
 
 if __name__ == "__main__":
     main()
