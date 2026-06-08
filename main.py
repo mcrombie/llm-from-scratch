@@ -1299,6 +1299,38 @@ def main():
     print(token_ids_to_text(token_ids, tokenizer))
 
 
+    # Printing the model archtiecture
+    # GPTModel(
+    #     (tok_emb) = Embedding(50257, 768),
+    #     (pos_emb) = Embedding(1024, 768),
+    #     (drop_emb) = Dropout(p=0.0, inplace=False)
+
+    # )
+
+    for param in model.parameters():
+        param.requires_grad = False
+
+    torch.manual_seed(123)
+    num_classes = 2
+    model.out_head = torch.nn.Linear(in_features=BASE_CONFIG["emb_dim"], out_features=num_classes)
+
+    for param in model.trf_blocks[-1].parameters():
+        param.requires_grad = True
+    for param in model.final_norm.parameters():
+        param.requires_grad = True
+
+    inputs = tokenizer.encode("Do you have time")
+    inputs = torch.tensor(inputs).unsqueeze(0)
+    print("Inputs:", inputs)
+    print("Input Shape:", inputs.shape)
+
+    with torch.no_grad():
+        outputs = model(inputs)
+    print("Outputs:\n", outputs)
+    print("Outputs shape:", outputs.shape)
+
+    print("Last output token:", outputs[:, -1, :])
+
 
 if __name__ == "__main__":
     main()
