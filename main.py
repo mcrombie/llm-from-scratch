@@ -367,30 +367,79 @@ def token_ids_to_text(token_ids, tokenizer):
     flat = token_ids.squeeze(0)
     return tokenizer.decode(flat.tolist())
 
-def calc_loss_batch(input_batch, target_batch, model, device): 
+# def calc_loss_batch(input_batch, target_batch, model, device): 
+#     input_batch = input_batch.to(device)
+#     target_batch = target_batch.to(device)
+#     logits = model(input_batch) 
+#     loss = torch.nn.functional.cross_entropy(
+#         logits.flatten(0, 1), target_batch.flatten()
+#         )
+#     return loss
+
+# def calc_loss_loader(data_loader, model, device, num_batches=None): 
+#     total_loss = 0. 
+#     if len(data_loader) == 0:
+#         return float("nan") 
+#     elif num_batches is None: 
+#         num_batches = len(data_loader)
+#     else: 
+#         num_batches = min(num_batches, len(data_loader))
+#     for i, (input_batch, target_batch) in enumerate(data_loader): 
+#         if i < num_batches: 
+#             loss = calc_loss_batch(input_batch, target_batch, model, device)
+#             total_loss += loss.item()
+#         else: 
+#             break 
+#     return total_loss / num_batches
+
+def calc_loss_batch(input_batch, target_batch, model, device, classification=False):
     input_batch = input_batch.to(device)
     target_batch = target_batch.to(device)
-    logits = model(input_batch) 
-    loss = torch.nn.functional.cross_entropy(
-        logits.flatten(0, 1), target_batch.flatten()
-        )
+    logits = model(input_batch)
+    if classification:
+        loss = torch.nn.functional.cross_entropy(logits[:, -1, :], target_batch)
+    else:
+        loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
     return loss
 
-def calc_loss_loader(data_loader, model, device, num_batches=None): 
-    total_loss = 0. 
+def calc_loss_loader(data_loader, model, device, num_batches=None, classification=False):
+    total_loss = 0.0
     if len(data_loader) == 0:
-        return float("nan") 
-    elif num_batches is None: 
+        return float("nan")
+    elif num_batches is None:
         num_batches = len(data_loader)
-    else: 
+    else:
         num_batches = min(num_batches, len(data_loader))
-    for i, (input_batch, target_batch) in enumerate(data_loader): 
-        if i < num_batches: 
-            loss = calc_loss_batch(input_batch, target_batch, model, device)
+    for i, (input_batch, target_batch) in enumerate(data_loader):
+        if i < num_batches:
+            loss = calc_loss_batch(input_batch, target_batch, model, device, classification=classification)
             total_loss += loss.item()
-        else: 
-            break 
+        else:
+            break
     return total_loss / num_batches
+
+def calc_accuracy_loader(data_loader, model, device, num_batches=None):
+    model.eval()
+    correct_predictions, num_examples = 0,0
+
+    if num_batches is None:
+        num_batches = len(data_loader)
+    else:
+        num_batches = min(num_batches, len(data_loader))
+    for i, (input_batch, target_batch) in enumerate(data_loader):
+        if i < num_batches:
+            input_batch = input_batch.to(device)
+            target_batch = target_batch.to(device)
+
+            with torch.no_grad():
+                logits = model(input_batch)[:, -1, :]
+            predicted_labels = torch.argmax(logits, dim=-1)
+
+            num_examples += predicted_labels.shape[0]
+            correct_predictions += (predicted_labels == target_batch).sum().item()
+        else:
+            break
+    return correct_predictions / num_examples
 
 def evaluate_model(model, train_loader, val_loader, device, eval_iter): 
     model.eval()
@@ -1331,6 +1380,35 @@ def main():
 
     print("Last output token:", outputs[:, -1, :])
 
+    probas = torch.softmax(outputs[:, -1, :], dim=-1)
+    label = torch.argmax(probas)
+    print("Class label:", label.item())
+
+    logits = outputs[:, -1, :]
+    label = torch.argmax(logits)
+    print("Class label from logits:", label.item())
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    torch.manual_seed(123)
+    train_accuracy = calc_accuracy_loader(train_loader, model, device, num_batches=10)
+    val_accuracy = calc_accuracy_loader(val_loader, model, device, num_batches=10)
+    test_accuracy = calc_accuracy_loader(test_loader, model, device, num_batches=10)
+
+    print(f"Train accuracy (10 batches): {train_accuracy*100:.2f}%")
+    print(f"Validation accuracy (10 batches): {val_accuracy*100:.2f}%")
+    print(f"Test accuracy (10 batches): {test_accuracy*100:.2f}%")
+
+
+    
+    with torch.no_grad():
+        train_loss = calc_loss_loader(train_loader, model, device, num_batches=5, classification=True)
+        val_loss = calc_loss_loader(val_loader, model, device, num_batches=5, classification=True)
+        test_loss = calc_loss_loader(test_loader, model, device, num_batches=5, classification=True)
+    print(f"Train loss (5 batches): {train_loss:.3f}")
+    print(f"Validation loss (5 batches): {val_loss:.3f}")
+    print(f"Test loss (5 batches): {test_loss:.3f}")
 
 if __name__ == "__main__":
     main()
