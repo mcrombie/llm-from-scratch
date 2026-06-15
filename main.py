@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import urllib.request 
+import time
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -316,7 +317,7 @@ class GPTModel(nn.Module):
         return logits 
     
 class SpamDataset(Dataset):
-    def __init__(self, csv_file, tokenizer, max_length=None, pad_token_id=0):
+    def __init__(self, csv_file, tokenizer, max_length=None, pad_token_id=50256):
         self.data = pd.read_csv(csv_file)
         self.encoded_texts = [tokenizer.encode(text) for text in self.data["Text"]]
         if max_length is None:
@@ -441,11 +442,15 @@ def calc_accuracy_loader(data_loader, model, device, num_batches=None):
             break
     return correct_predictions / num_examples
 
-def evaluate_model(model, train_loader, val_loader, device, eval_iter): 
+def evaluate_model(model, train_loader, val_loader, device, eval_iter, classification=False): 
     model.eval()
     with torch.no_grad():
-        train_loss = calc_loss_loader(train_loader, model, device, num_batches=eval_iter)
-        val_loss = calc_loss_loader(val_loader, model, device, num_batches=eval_iter)
+        train_loss = calc_loss_loader(
+            train_loader, model, device, num_batches=eval_iter, classification=classification
+        )
+        val_loss = calc_loss_loader(
+            val_loader, model, device, num_batches=eval_iter, classification=classification
+        )
     model.train() 
     return train_loss, val_loss
 
@@ -510,7 +515,60 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses):
     ax2.set_xlabel("Tokens seen")
     fig.tight_layout()
     plt.show()
+
+def train_classifier_simple(
+        model, train_loader, val_loader, optimizer, device, num_epochs, eval_freq, eval_iter
+):
+    train_losses, val_losses, train_accs, val_accs = [], [], [], []
+    examples_seen, global_step = 0, -1
+
+    for epoch in range(num_epochs):
+        model.train()
+
+        for input_batch, target_batch in train_loader:
+            optimizer.zero_grad()
+            loss = calc_loss_batch(input_batch, target_batch, model, device, classification=True)
+            loss.backward()
+            optimizer.step()
+            examples_seen += input_batch.shape[0]
+            global_step += 1
+
+            if global_step % eval_freq == 0:
+                    train_loss, val_loss = evaluate_model(
+                        model, train_loader, val_loader, device, eval_iter, classification=True
+                    )
+                    train_losses.append(train_loss)
+                    val_losses.append(val_loss)
+                    print(f"Ep {epoch+1} (Step {global_step:06d}): "
+                          f"Train loss {train_loss:.3f}, Val loss {val_loss:.3f}"
+                          )
+                    
+        train_accuracy = calc_accuracy_loader(train_loader, model, device, num_batches=eval_iter)
+        val_accuracy = calc_accuracy_loader(val_loader, model, device, num_batches=eval_iter)
+
+        print(f"Training accuracy: {train_accuracy*100:.2f}% | ", end="")
+        print(f"Validation accuracy: {val_accuracy*100:.2f}%")
+        train_accs.append(train_accuracy)
+        val_accs.append(val_accuracy)
     
+    return train_losses, val_losses, train_accs, val_accs, examples_seen
+    
+def plot_values(epochs_seen, examples_seen, train_values, val_values, label="loss"):
+    fig, ax1 = plt.subplots(figsize=(5, 3))
+
+    ax1.plot(epochs_seen, train_values, label=f"Training {label}")
+    ax1.plot(epochs_seen, val_values, linestyle="-.", label=f"Validation {label}")
+    ax1.set_xlabel("Epochs")
+    ax1.set_ylabel(label.capitalize())
+    ax1.legend()
+
+    ax2 = ax1.twiny()
+    ax2.plot(examples_seen, train_values, alpha=0)
+    ax2.set_xlabel("Examples seen")
+
+    fig.tight_layout()
+    plt.savefig(f"{label}-plot.pdf")
+    plt.show()
 
 def main():
     with open(FILE_PATH, "r", encoding="utf-8") as f:
@@ -1278,7 +1336,7 @@ def main():
     test_df.to_csv("test.csv", index=None)
 
     tokenizer = tiktoken.get_encoding("gpt2")
-    print(tokenizer.encode("<endoftext>", allowed_special={"<endoftext>"}))
+    print(tokenizer.encode("<|endoftext|>", allowed_special={"<|endoftext|>"}))
 
     train_dataset = SpamDataset(csv_file="train.csv", tokenizer=tokenizer, max_length=None)
 
@@ -1409,6 +1467,36 @@ def main():
     print(f"Train loss (5 batches): {train_loss:.3f}")
     print(f"Validation loss (5 batches): {val_loss:.3f}")
     print(f"Test loss (5 batches): {test_loss:.3f}")
+
+    start_time = time.time()
+    torch.manual_seed(123)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.1)
+    num_epochs = 5
+
+    train_losses, val_losses, train_accs, val_accs, examples_seen = \
+        train_classifier_simple(model, train_loader, val_loader, optimizer, device, num_epochs=num_epochs, eval_freq=50, eval_iter=5)
+    end_time = time.time()
+    execution_time_minutes = (end_time - start_time) / 60
+    print(f"Training completed in {execution_time_minutes:.2f} minutes.")
+
+    epochs_tensor = torch.linspace(0, num_epochs, len(train_losses))
+    examples_seen_tensor = torch.linspace(0, examples_seen, len(train_losses))
+
+    plot_values(epochs_tensor, examples_seen_tensor, train_losses, val_losses)
+
+    epochs_tensor = torch.linspace(0, num_epochs, len(train_accs))
+    examples_seen_tensor = torch.linspace(0, examples_seen, len(train_accs))
+
+    plot_values(epochs_tensor, examples_seen_tensor, train_accs, val_accs, label="accuracy")
+
+    train_accuracy = calc_accuracy_loader(train_loader, model, device)
+    val_accuracy = calc_accuracy_loader(val_loader, model, device)
+
+    test_accuracy = calc_accuracy_loader(test_loader, model, device)
+
+    print(f"Training accuracy: {train_accuracy*100:.2f}%")
+    print(f"Validation accuracy: {val_accuracy*100:.2f}%")
+    print(f"Test accuracy: {test_accuracy*100:.2f}%")
 
 if __name__ == "__main__":
     main()
