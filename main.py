@@ -20,6 +20,8 @@ import numpy as np
 
 import json
 
+from functools import partial
+
 
 
 URL = (
@@ -697,7 +699,6 @@ def custom_collate_fn(batch, pad_token_id=50256, ignore_index=-100, allowed_max_
     inputs_tensor = torch.stack(inputs_lst).to(device)
     targets_tensor = torch.stack(targets_lst).to(device)
     return inputs_tensor, targets_tensor
-
 
 def main():
     with open(FILE_PATH, "r", encoding="utf-8") as f:
@@ -1709,6 +1710,51 @@ def main():
     print(loss_3)
     print("loss_1 == loss_3:", loss_1 == loss_3)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available(): # uncomment these two lines to use the GPU on Apple Silicon chip
+        device = torch.device("mps")
+    print("Device:", device)
+
+    customized_collate_fn = partial(custom_collate_fn, device=device, allowed_max_length=1024)
+
+    num_workers = 0
+    batch_size = 8
+
+    torch.manual_seed(123)
+
+    train_dataset = InstructionDataset(train_data, tokenizer)
+    train_loader = DataLoader(
+        dataset=train_dataset, 
+        batch_size=batch_size, 
+        shuffle=True, 
+        num_workers=num_workers, 
+        collate_fn=customized_collate_fn,
+        drop_last=True
+    )
+
+    val_dataset = InstructionDataset(val_data, tokenizer)
+    val_loader = DataLoader(
+        dataset=val_dataset, 
+        batch_size=batch_size, 
+        shuffle=False, 
+        num_workers=num_workers, 
+        collate_fn=customized_collate_fn,
+        drop_last=False
+    )
+
+    test_dataset = InstructionDataset(test_data, tokenizer)
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        collate_fn=customized_collate_fn,
+        drop_last=False
+    )
+
+    print("Train loader:")
+    for inputs, targets in train_loader:
+        print(inputs.shape, targets.shape)
 
 
 
