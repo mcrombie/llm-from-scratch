@@ -1785,8 +1785,31 @@ def main():
     response_text = generated_text[len(input_text):].strip()
     print(response_text)
 
-    
+    model.to(device)
+    torch.manual_seed(123)
 
+    with torch.no_grad():
+        train_loss = calc_loss_loader(train_loader, model, device, num_batches=5, classification=False)
+        val_loss = calc_loss_loader(val_loader, model, device, num_batches=5, classification=False)
+
+    print(f"Train loss: {train_loss:.3f}")
+    print(f"Validation loss: {val_loss:.3f}")
+
+    start_time = time.time()
+    torch.manual_seed(123)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=5e-5, weight_decay=0.1)
+    num_epochs = 2
+
+    train_losses, val_losses, tokens_seen = train_model_simple(
+        model, train_loader, val_loader, optimizer, device, num_epochs=num_epochs, eval_freq=5, eval_iter=5, start_context=format_input(val_data[0]), tokenizer=tokenizer
+    )
+
+    end_time = time.time()
+    execution_time_minutes = (end_time - start_time) / 60
+    print(f"Training completed in {execution_time_minutes:.2f} minutes.")
+
+    epochs_tensor = torch.linspace(0, num_epochs, len(train_losses))
+    plot_losses(epochs_tensor, tokens_seen, train_losses, val_losses)
 
 
 if __name__ == "__main__":
