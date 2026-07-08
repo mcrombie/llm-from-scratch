@@ -10,6 +10,11 @@ wheels/
 *.pth
 gpt2/
 gpt_download.py
+artifacts/
+logs/
+run-main-*.err.log
+run-main-*.out.log
+instruction-data-with-response.json
 
 # Virtual environments
 .venv

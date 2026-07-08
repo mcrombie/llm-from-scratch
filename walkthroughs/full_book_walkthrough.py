@@ -3,6 +3,12 @@ import re
 import sys
 import urllib.request 
 import time
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+project_root = str(PROJECT_ROOT)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -47,12 +53,11 @@ from matplotlib.ticker import MaxNLocator
 
 import zipfile
 import os
-from pathlib import Path
 
 import pandas as pd
 
-from gpt_download import download_and_load_gpt2
-# GPTModel and load_weights_into_gpt are defined locally below
+# gpt_download.py is fetched and imported lazily in the GPT-2 loading section.
+# GPTModel and load_weights_into_gpt are defined locally below.
 
 SPAM_DATA_URL = "https://archive.ics.uci.edu/static/public/228/sms+spam+collection.zip"
 zip_path = "sms_spam_collection.zip"
@@ -1817,7 +1822,7 @@ def main():
     epochs_tensor = torch.linspace(0, num_epochs, len(train_losses))
     plot_losses(epochs_tensor, tokens_seen, train_losses, val_losses)
 
-    torch.manual.seed(123)
+    torch.manual_seed(123)
 
     for entry in test_data[:3]:
         input_text = format_input(entry)
@@ -1832,7 +1837,7 @@ def main():
 
         response_text = (
             generated_text[len(input_text):]
-            .replaced("### Response:", "")
+            .replace("### Response:", "")
             .strip()
         )
         print(f"Input:\n{input_text}\n")
@@ -1854,7 +1859,7 @@ def main():
 
         response_text = (
             generated_text[len(input_text):]
-            .replaced("### Response:", "")
+            .replace("### Response:", "")
             .strip()
         )
 
@@ -1872,18 +1877,19 @@ def main():
     def check_if_running(process_name):
         running = False
         for proc in psutil.process_iter(['name']):
-            if process_name in proc.info['name']:
+            name = (proc.info.get('name') or '').lower()
+            if process_name.lower() in name:
                 running = True
                 break
         return running
     
-    olamma_running = check_if_running("olamma")
+    ollama_running = check_if_running("ollama")
 
-    if not olamma_running:
+    if not ollama_running:
         raise RuntimeError(
-            "The olamma server is not running. Please start the server before running this script."
+            "The ollama server is not running. Please start the server before running this script."
         )
-    print("Olamma running:", check_if_running("olamma"))
+    print("Ollama running:", check_if_running("ollama"))
 
     file_path = "instruction-data-with-response.json"
     with open(file_path, "r") as file:
@@ -1947,7 +1953,7 @@ def main():
     
     def generate_model_scores(json_data, json_key, model="llama3"):
         scores = []
-        for entry in tdqm(json_data, desc="Scoring entries"):
+        for entry in tqdm(json_data, desc="Scoring entries"):
             prompt = (
                 f"Given the input `{format_input(entry)}`"
                 f"and correct output `{entry['output']}`,"
